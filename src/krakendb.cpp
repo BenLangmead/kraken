@@ -122,94 +122,6 @@ uint64_t KrakenDB::get_key_ct() { return key_ct; }
 uint64_t KrakenDB::pair_size() { return key_len + val_len; }
 size_t KrakenDB::header_size() { return 72 + 2 * (4 + 8 * key_bits); }
 
-#define FAST_COPY(dst, src, nbytes) { \
-	char *dc = (char*)dst; \
-	const char *sc = (const char*)src; \
-	for(int _i = 0; _i < nbytes; _i++) { \
-		*dc++ = *sc++; \
-	} \
-}
-
-// perform search over last range to speed up queries
-// NOTE: retry_on_failure implies all pointer params are non-NULL
-uint32_t *KrakenDB::kmer_query(uint64_t kmer, uint64_t *last_bin_key,
-                               int64_t *min_pos, int64_t *max_pos,
-                               bool retry_on_failure)
-{
-  int64_t min, max, mid;
-  uint64_t comp_kmer;
-  uint64_t b_key;
-  char *ptr = get_pair_ptr();
-  size_t pair_sz = pair_size();
-
-  // Use provided values if they exist and are valid
-  if (retry_on_failure && *min_pos <= *max_pos) {
-    b_key = *last_bin_key;
-    min = *min_pos;
-    max = *max_pos;
-  }
-  else {
-    b_key = bin_key(kmer);
-    min = index_ptr->at(b_key);
-    max = index_ptr->at(b_key + 1) - 1;
-    // Invalid min/max values + retry_on_failure means min/max need to be
-    // initialized and set in caller
-    if (retry_on_failure) {
-      *last_bin_key = b_key;
-      *min_pos = min;
-      *max_pos = max;
-    }
-  }
-
-  // Binary search with large window
-  while (min + 15 <= max) {
-    mid = min + (max - min) / 2;
-    comp_kmer = 0;
-    FAST_COPY(&comp_kmer, ptr + pair_sz * mid, key_len);
-    comp_kmer &= (1ull << key_bits) - 1;  // trim any excess
-    if (kmer > comp_kmer)
-      min = mid + 1;
-    else if (kmer < comp_kmer)
-      max = mid - 1;
-    else
-      return (uint32_t *) (ptr + pair_sz * mid + key_len);
-  }
-  // Linear search once window shrinks
-  for (mid = min; mid <= max; mid++) {
-    comp_kmer = 0;
-    FAST_COPY(&comp_kmer, ptr + pair_sz * mid, key_len);
-    comp_kmer &= (1ull << key_bits) - 1;  // trim any excess
-    if (kmer == comp_kmer)
-      return (uint32_t *) (ptr + pair_sz * mid + key_len);
-  }
-
-  uint32_t *answer = NULL;
-  // ROF implies the provided values might be out of date
-  // If they are, we'll update them and search again
-  if (retry_on_failure) {
-    b_key = bin_key(kmer);
-    // If bin key hasn't changed, search fails
-    if (b_key == *last_bin_key)
-      return NULL;
-    min = index_ptr->at(b_key);
-    max = index_ptr->at(b_key + 1) - 1;
-    // Recursive call w/ adjusted search params and w/o retry
-    answer = kmer_query(kmer, &b_key, &min, &max, false);
-    // Update caller's search params due to bin key change
-    if (last_bin_key != NULL) {
-      *last_bin_key = b_key;
-      *min_pos = min;
-      *max_pos = max;
-    }
-  }
-  return answer;
-}
-
-// Binary search w/in the k-mer's bin
-uint32_t *KrakenDB::kmer_query(uint64_t kmer) {
-  return kmer_query(kmer, NULL, NULL, NULL, false);
-}
-
 KrakenDBIndex::KrakenDBIndex() {
   fptr = NULL;
   idx_type = 1;
@@ -241,16 +153,6 @@ uint8_t KrakenDBIndex::indexed_nt() {
 // Return start of index array (skips header)
 uint64_t *KrakenDBIndex::get_array() {
   return (uint64_t *) (fptr + strlen(KRAKEN_INDEX_STRING) + 1);
-}
-
-// Convenience method, allows for testing guard
-uint64_t KrakenDBIndex::at(uint64_t idx) {
-  uint64_t *array = get_array();
-  #ifdef TESTING
-  if (idx > 1 + (1ull << (nt * 2)))
-    errx(EX_SOFTWARE, "KrakenDBIndex::at() called with illegal index");
-  #endif
-  return array[idx];
 }
 
 } // namespace

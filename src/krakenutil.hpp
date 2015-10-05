@@ -39,8 +39,39 @@ namespace kraken {
     public:
 
     KmerScanner(std::string &seq, size_t start=0, size_t finish=~0);
-    uint64_t *next_kmer();  // NULL when seq exhausted
-    bool ambig_kmer();  // does last returned kmer have non-ACGT?
+	
+    inline uint64_t *next_kmer() {
+        if (curr_pos >= pos2)
+            return NULL;
+        if (loaded_nt)
+            loaded_nt--;
+        while (loaded_nt < k) {
+            loaded_nt++;
+            kmer <<= 2;
+            ambig <<= 1;
+            switch ((*str)[curr_pos++]) {
+                case 'A': case 'a':
+                    break;
+                case 'C': case 'c':
+                    kmer |= 1;
+                    break;
+                case 'G': case 'g':
+                    kmer |= 2;
+                    break;
+                case 'T': case 't':
+                    kmer |= 3;
+                    break;
+                default:
+                    ambig |= 1;
+                    break;
+            }
+            kmer &= kmer_mask;
+            ambig &= mini_kmer_mask;
+        }
+        return &kmer;
+    }
+	
+	bool ambig_kmer();  // does last returned kmer have non-ACGT?
 
 
     static uint8_t get_k();

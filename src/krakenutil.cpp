@@ -144,37 +144,6 @@ namespace kraken {
     mini_kmer_mask >>= sizeof(mini_kmer_mask) * 8 - k;
   }
 
-  uint64_t *KmerScanner::next_kmer() {
-    if (curr_pos >= pos2)
-      return NULL;
-    if (loaded_nt)  
-      loaded_nt--;
-    while (loaded_nt < k) {
-      loaded_nt++;
-      kmer <<= 2;
-      ambig <<= 1;
-      switch ((*str)[curr_pos++]) {
-        case 'A': case 'a':
-          break;
-        case 'C': case 'c':
-          kmer |= 1;
-          break;
-        case 'G': case 'g':
-          kmer |= 2;
-          break;
-        case 'T': case 't':
-          kmer |= 3;
-          break;
-        default:
-          ambig |= 1;
-          break;
-      }
-      kmer &= kmer_mask;
-      ambig &= mini_kmer_mask;
-    }
-    return &kmer;
-  }
-
   bool KmerScanner::ambig_kmer() {
     return !! ambig;
   }
