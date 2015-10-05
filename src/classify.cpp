@@ -17,6 +17,7 @@
  * along with Kraken.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <stdio.h>
 #include "kraken_headers.hpp"
 #include "krakendb.hpp"
 #include "krakenutil.hpp"
@@ -50,14 +51,16 @@ uint32_t Minimum_hit_count = 1;
 map<uint32_t, uint32_t> Parent_map;
 KrakenDB Database;
 string Classified_output_file, Unclassified_output_file, Kraken_output_file;
-ostream *Classified_output;
-ostream *Unclassified_output;
-ostream *Kraken_output;
+FILE *Classified_output = NULL;
+FILE *Unclassified_output = NULL;
+FILE *Kraken_output = NULL;
 size_t Work_unit_size = DEF_WORK_UNIT_SIZE;
 
 uint64_t total_classified = 0;
 uint64_t total_sequences = 0;
 uint64_t total_bases = 0;
+
+const static int BUFSZ = 1024 * 1024;
 
 int main(int argc, char **argv) {
   #ifdef _OPENMP
@@ -89,28 +92,49 @@ int main(int argc, char **argv) {
   if (Populate_memory)
     cerr << "complete." << endl;
 
+  char buf_stdout[BUFSZ];
+  char buf_classified[BUFSZ];
+  char buf_unclassified[BUFSZ];
+  char buf_kraken[BUFSZ];
+  bool using_stdout = false;
+
   if (Print_classified) {
-    if (Classified_output_file == "-")
-      Classified_output = &cout;
-    else
-      Classified_output = new ofstream(Classified_output_file.c_str());
+    if (Classified_output_file == "-") {
+      Classified_output = stdout;
+      using_stdout = true;
+    } else {
+      Classified_output = fopen(Classified_output_file.c_str(), "wb");
+      setvbuf(Classified_output, buf_classified, _IOFBF, BUFSZ);
+    }
   }
 
   if (Print_unclassified) {
-    if (Unclassified_output_file == "-")
-      Unclassified_output = &cout;
-    else
-      Unclassified_output = new ofstream(Unclassified_output_file.c_str());
+    if (Unclassified_output_file == "-") {
+      Unclassified_output = stdout;
+      using_stdout = true;
+    } else {
+      Unclassified_output = fopen(Unclassified_output_file.c_str(), "wb");
+      setvbuf(Unclassified_output, buf_unclassified, _IOFBF, BUFSZ);
+    }
   }
 
   if (! Kraken_output_file.empty()) {
-    if (Kraken_output_file == "-")
+    if (Kraken_output_file == "-") {
       Print_kraken = false;
-    else
-      Kraken_output = new ofstream(Kraken_output_file.c_str());
+      using_stdout = true;
+    } else {
+      Kraken_output = fopen(Kraken_output_file.c_str(), "wb");
+      setvbuf(Kraken_output, buf_kraken, _IOFBF, BUFSZ);
+	}
   }
-  else
-    Kraken_output = &cout;
+  else {
+    Kraken_output = stdout;
+    using_stdout = true;
+  }
+
+  if(using_stdout) {
+    setvbuf(stdout, buf_stdout, _IOFBF, BUFSZ);
+  }
 
   struct timeval tv1, tv2;
   gettimeofday(&tv1, NULL);
@@ -119,6 +143,15 @@ int main(int argc, char **argv) {
   gettimeofday(&tv2, NULL);
 
   report_stats(tv1, tv2);
+  if(Classified_output != NULL && Classified_output != stdout) {
+    fclose(Classified_output);
+  }
+  if(Unclassified_output != NULL && Unclassified_output != stdout) {
+    fclose(Unclassified_output);
+  }
+  if(Kraken_output != NULL && Kraken_output != stdout) {
+    fclose(Kraken_output);
+  }
 
   return 0;
 }
@@ -188,11 +221,11 @@ void process_file(char *filename) {
       #pragma omp critical(write_output)
       {
         if (Print_kraken)
-          (*Kraken_output) << kraken_output_ss.str();
+          fputs(kraken_output_ss.str().c_str(), Kraken_output);
         if (Print_classified)
-          (*Classified_output) << classified_output_ss.str();
+          fputs(classified_output_ss.str().c_str(), Classified_output);
         if (Print_unclassified)
-          (*Unclassified_output) << unclassified_output_ss.str();
+          fputs(unclassified_output_ss.str().c_str(), Unclassified_output);
         total_sequences += work_unit.size();
         total_bases += total_nt;
         cerr << "\rProcessed " << total_sequences << " sequences (" << total_bases << " bp) ...";
