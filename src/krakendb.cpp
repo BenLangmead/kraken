@@ -195,6 +195,14 @@ uint64_t KrakenDB::canonical_representation(uint64_t kmer) {
   return kmer < revcom ? kmer : revcom;
 }
 
+#define FAST_COPY(dst, src, nbytes) { \
+	char *dc = (char*)dst; \
+	const char *sc = (const char*)src; \
+	for(int _i = 0; _i < nbytes; _i++) { \
+		*dc++ = *sc++; \
+	} \
+}
+
 // perform search over last range to speed up queries
 // NOTE: retry_on_failure implies all pointer params are non-NULL
 uint32_t *KrakenDB::kmer_query(uint64_t kmer, uint64_t *last_bin_key,
@@ -230,7 +238,7 @@ uint32_t *KrakenDB::kmer_query(uint64_t kmer, uint64_t *last_bin_key,
   while (min + 15 <= max) {
     mid = min + (max - min) / 2;
     comp_kmer = 0;
-    memcpy(&comp_kmer, ptr + pair_sz * mid, key_len);
+    FAST_COPY(&comp_kmer, ptr + pair_sz * mid, key_len);
     comp_kmer &= (1ull << key_bits) - 1;  // trim any excess
     if (kmer > comp_kmer)
       min = mid + 1;
@@ -242,7 +250,7 @@ uint32_t *KrakenDB::kmer_query(uint64_t kmer, uint64_t *last_bin_key,
   // Linear search once window shrinks
   for (mid = min; mid <= max; mid++) {
     comp_kmer = 0;
-    memcpy(&comp_kmer, ptr + pair_sz * mid, key_len);
+    FAST_COPY(&comp_kmer, ptr + pair_sz * mid, key_len);
     comp_kmer &= (1ull << key_bits) - 1;  // trim any excess
     if (kmer == comp_kmer)
       return (uint32_t *) (ptr + pair_sz * mid + key_len);

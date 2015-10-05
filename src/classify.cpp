@@ -63,6 +63,7 @@ int main(int argc, char **argv) {
   #ifdef _OPENMP
   omp_set_num_threads(1);
   #endif
+  std::ios_base::sync_with_stdio(false);
 
   parse_command_line(argc, argv);
   if (! Nodes_filename.empty())
