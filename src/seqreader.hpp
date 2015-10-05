@@ -46,6 +46,7 @@ namespace kraken {
     private:
     std::ifstream file;
     std::string linebuffer;
+    std::string line_;
     bool valid;
   };
 

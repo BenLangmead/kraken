@@ -38,35 +38,35 @@ namespace kraken {
       valid = false;
       return dna;
     }
-    string line;
 
+    line_.clear();
     if (linebuffer.empty()) {
-      getline(file, line);
+      getline(file, line_);
     }
     else {
-      line = linebuffer;
+      line_ = linebuffer;
       linebuffer.clear();
     }
 
-    if (line[0] != '>') {
+    if (line_[0] != '>') {
       warnx("malformed fasta file - expected header char > not found");
       valid = false;
       return dna;
     }
-    dna.header_line = line.substr(1);
+    dna.header_line = line_.substr(1);
     istringstream seq_id(dna.header_line);
     seq_id >> dna.id;
     
     ostringstream seq_ss;
 
     while (file.good()) {
-      getline(file, line);
-      if (line[0] == '>') {
-        linebuffer = line;
+      getline(file, line_);
+      if (line_[0] == '>') {
+        linebuffer = line_;
         break;
       }
       else {
-        seq_ss << line;
+        seq_ss << line_;
       }
     }
     dna.seq = seq_ss.str();

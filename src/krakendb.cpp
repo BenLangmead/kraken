@@ -38,10 +38,6 @@ static const char * KRAKEN_INDEX_STRING = "KRAKIDX";
 // Next byte determines # of indexed nt
 static const char * KRAKEN_INDEX2_STRING = "KRAKIX2";
 
-// XOR mask for minimizer bin keys (allows for better distribution)
-// scrambles minimizer sort order
-static const uint64_t INDEX2_XOR_MASK = 0xe37e28c4271b5a2dULL;
-
 // Basic constructor
 KrakenDB::KrakenDB() {
   fptr = NULL;
@@ -125,75 +121,6 @@ uint64_t KrakenDB::get_val_len() { return val_len; }
 uint64_t KrakenDB::get_key_ct() { return key_ct; }
 uint64_t KrakenDB::pair_size() { return key_len + val_len; }
 size_t KrakenDB::header_size() { return 72 + 2 * (4 + 8 * key_bits); }
-
-// Bin key: each k-mer is made of several overlapping m-mers, m < k
-// The bin key is the m-mer whose canonical representation is "smallest"
-// ("smallest" can refer to lexico. ordering or some other ordering)
-uint64_t KrakenDB::bin_key(uint64_t kmer, uint64_t idx_nt) {
-  uint8_t nt = idx_nt;
-  uint64_t xor_mask = INDEX2_XOR_MASK;
-  uint64_t mask = 1 << (nt * 2);
-  mask--;
-  xor_mask &= mask;
-  uint64_t min_bin_key = ~0;
-  for (uint64_t i = 0; i < key_bits / 2 - nt + 1; i++) {
-    uint64_t temp_bin_key = xor_mask ^ canonical_representation(kmer & mask, nt);
-    if (temp_bin_key < min_bin_key)
-      min_bin_key = temp_bin_key;
-    kmer >>= 2;
-  }
-  return min_bin_key;
-}
-
-// Separate functions to avoid a conditional in the function
-// This probably isn't necessary...
-uint64_t KrakenDB::bin_key(uint64_t kmer) {
-  uint8_t nt = index_ptr->indexed_nt();
-  uint8_t idx_type = index_ptr->index_type();
-  uint64_t xor_mask = idx_type == 1 ? 0 : INDEX2_XOR_MASK;
-  uint64_t mask = 1 << (nt * 2);
-  mask--;
-  xor_mask &= mask;
-  uint64_t min_bin_key = ~0;
-  for (uint64_t i = 0; i < key_bits / 2 - nt + 1; i++) {
-    uint64_t temp_bin_key = xor_mask ^ canonical_representation(kmer & mask, nt);
-    if (temp_bin_key < min_bin_key)
-      min_bin_key = temp_bin_key;
-    kmer >>= 2;
-  }
-  return min_bin_key;
-}
-
-// Code mostly from Jellyfish 1.6 source
-uint64_t KrakenDB::reverse_complement(uint64_t kmer, uint8_t n) {
-  kmer = ((kmer >> 2)  & 0x3333333333333333UL) | ((kmer & 0x3333333333333333UL) << 2);
-  kmer = ((kmer >> 4)  & 0x0F0F0F0F0F0F0F0FUL) | ((kmer & 0x0F0F0F0F0F0F0F0FUL) << 4);
-  kmer = ((kmer >> 8)  & 0x00FF00FF00FF00FFUL) | ((kmer & 0x00FF00FF00FF00FFUL) << 8);
-  kmer = ((kmer >> 16) & 0x0000FFFF0000FFFFUL) | ((kmer & 0x0000FFFF0000FFFFUL) << 16);
-  kmer = ( kmer >> 32                        ) | ( kmer                         << 32);
-  return (((uint64_t)-1) - kmer) >> (8 * sizeof(kmer) - (n << 1));
-}
-
-// Code mostly from Jellyfish 1.6 source
-uint64_t KrakenDB::reverse_complement(uint64_t kmer) {
-  kmer = ((kmer >> 2)  & 0x3333333333333333UL) | ((kmer & 0x3333333333333333UL) << 2);
-  kmer = ((kmer >> 4)  & 0x0F0F0F0F0F0F0F0FUL) | ((kmer & 0x0F0F0F0F0F0F0F0FUL) << 4);
-  kmer = ((kmer >> 8)  & 0x00FF00FF00FF00FFUL) | ((kmer & 0x00FF00FF00FF00FFUL) << 8);
-  kmer = ((kmer >> 16) & 0x0000FFFF0000FFFFUL) | ((kmer & 0x0000FFFF0000FFFFUL) << 16);
-  kmer = ( kmer >> 32                        ) | ( kmer                         << 32);
-  return (((uint64_t)-1) - kmer) >> (8 * sizeof(kmer) - (k << 1));
-}
-
-// Lexicographically smallest of k-mer and reverse comp. of k-mer
-uint64_t KrakenDB::canonical_representation(uint64_t kmer, uint8_t n) {
-  uint64_t revcom = reverse_complement(kmer, n);
-  return kmer < revcom ? kmer : revcom;
-}
-
-uint64_t KrakenDB::canonical_representation(uint64_t kmer) {
-  uint64_t revcom = reverse_complement(kmer, k);
-  return kmer < revcom ? kmer : revcom;
-}
 
 #define FAST_COPY(dst, src, nbytes) { \
 	char *dc = (char*)dst; \
