@@ -18,15 +18,11 @@ read to their lowest common ancestor (TaxID 2, the genus).
 When a database is built with **k=63**, only Test_species_A contains the
 required 63-mer. The read should then be classified as TaxID 3.
 
-To build the database and run Kraken, use commands similar to:
+To build the database and run Kraken, use the commands in the k31.sh and
+k63.sh files.  They should be run from the same directory as this
+README.md file.
 
 ```bash
-kraken-build --db db31 --add-to-library library/speciesA.fa \
-            --add-to-library library/speciesB.fa --taxid-map /dev/null \
-            --jellyfish-hash-size 1M --build --kmer-len 31 --minimizer-len 15 \
-            --taxonomy taxonomy
-kraken --db db31 reads.fa
-
 kraken-build --db db63 --add-to-library library/speciesA.fa \
             --add-to-library library/speciesB.fa --taxid-map /dev/null \
             --jellyfish-hash-size 1M --build --kmer-len 63 --minimizer-len 31 \
