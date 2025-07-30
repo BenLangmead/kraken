@@ -2,8 +2,8 @@
 
 set -ex
 
-K=31
-EXPECTED_TAXON=2
+K=63
+EXPECTED_TAXON=3
 
 for fn in library/speciesA.fa library/speciesB.fa ; do
     ../../dist/kraken-build --db db${K} --add-to-library ${fn} \
