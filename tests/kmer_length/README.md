@@ -22,13 +22,7 @@ To build the database and run Kraken, use the commands in the k31.sh and
 k63.sh files.  They should be run from the same directory as this
 README.md file.
 
-```bash
-kraken-build --db db63 --add-to-library library/speciesA.fa \
-            --add-to-library library/speciesB.fa --taxid-map /dev/null \
-            --jellyfish-hash-size 1M --build --kmer-len 63 --minimizer-len 31 \
-            --taxonomy taxonomy
-kraken --db db63 reads.fa
-```
-
 The first command should label `read1` with TaxID 2, while the second
-should label it with TaxID 3.
+should label it with TaxID 3.  The scripts themselves check for these
+outcomes and print PASSED with exitlevel 0 if successful, or exit with
+nonzero exitlevel otherwise.
