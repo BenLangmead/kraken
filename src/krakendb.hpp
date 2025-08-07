@@ -20,6 +20,8 @@
 #ifndef KRAKENDB_HPP
 #define KRAKENDB_HPP
 
+#define UINT128(high, low) ((__uint128_t)(high) << 64 | (low))
+
 #include "kraken_headers.hpp"
 
 namespace kraken {
@@ -65,16 +67,22 @@ namespace kraken {
     // If idx_nt not specified, use index's value
     uint64_t bin_key(uint64_t kmer, uint64_t idx_nt);
     uint64_t bin_key(uint64_t kmer);
+    __uint128_t bin_key128(__uint128_t kmer, uint64_t idx_nt);
+    __uint128_t bin_key128(__uint128_t kmer);
 
     // Code from Jellyfish, rev. comp. of a k-mer with n nt.
     // If n is not specified, use k in DB, otherwise use first n nt in kmer
     uint64_t reverse_complement(uint64_t kmer, uint8_t n);
     uint64_t reverse_complement(uint64_t kmer);
+    __uint128_t reverse_complement128(__uint128_t kmer, uint8_t n);
+    __uint128_t reverse_complement128(__uint128_t kmer);
 
     // Return lexicographically smallest of kmer/revcom(kmer)
     // If n is not specified, use k in DB, otherwise use first n nt in kmer
     uint64_t canonical_representation(uint64_t kmer, uint8_t n);
     uint64_t canonical_representation(uint64_t kmer);
+    __uint128_t canonical_representation128(__uint128_t kmer, uint8_t n);
+    __uint128_t canonical_representation128(__uint128_t kmer);
 
     void make_index(std::string index_filename, uint8_t nt);
 
@@ -82,6 +90,9 @@ namespace kraken {
 
     // Null constructor
     KrakenDB();
+
+    // Slightly less basic constructor, just for testing
+    KrakenDB(uint64_t _val_len, uint64_t _key_len, uint64_t _key_bits);
 
     // ptr points to start of mmap'ed DB in read or read/write mode
     KrakenDB(char *ptr);

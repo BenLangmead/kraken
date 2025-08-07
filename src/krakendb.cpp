@@ -20,6 +20,7 @@
 #include "kraken_headers.hpp"
 #include "krakendb.hpp"
 #include "quickfile.hpp"
+#include <cassert>
 
 using std::string;
 using std::vector;
@@ -40,7 +41,10 @@ static const char * KRAKEN_INDEX2_STRING = "KRAKIX2";
 
 // XOR mask for minimizer bin keys (allows for better distribution)
 // scrambles minimizer sort order
+static const __uint128_t INDEX2_XOR_MASK128 = UINT128(0xc0aa6e709f297b54ULL, 0xe37e28c4271b5a2dULL);
 static const uint64_t INDEX2_XOR_MASK = 0xe37e28c4271b5a2dULL;
+
+// c0aa6e709f297b54
 
 // Basic constructor
 KrakenDB::KrakenDB() {
@@ -50,6 +54,17 @@ KrakenDB::KrakenDB() {
   val_len = 0;
   key_len = 0;
   key_bits = 0;
+  k = 0;
+}
+
+// Slightly less basic constructor, just for testing
+KrakenDB::KrakenDB(uint64_t _val_len, uint64_t _key_len, uint64_t _key_bits) {
+  fptr = NULL;
+  index_ptr = NULL;
+  key_ct = 0;
+  val_len = _val_len;
+  key_len = _key_len;
+  key_bits = _key_bits;
   k = 0;
 }
 
@@ -145,6 +160,7 @@ uint64_t KrakenDB::bin_key(uint64_t kmer, uint64_t idx_nt) {
   return min_bin_key;
 }
 
+
 // Separate functions to avoid a conditional in the function
 // This probably isn't necessary...
 uint64_t KrakenDB::bin_key(uint64_t kmer) {
@@ -157,6 +173,39 @@ uint64_t KrakenDB::bin_key(uint64_t kmer) {
   uint64_t min_bin_key = ~0;
   for (uint64_t i = 0; i < key_bits / 2 - nt + 1; i++) {
     uint64_t temp_bin_key = xor_mask ^ canonical_representation(kmer & mask, nt);
+    if (temp_bin_key < min_bin_key)
+      min_bin_key = temp_bin_key;
+    kmer >>= 2;
+  }
+  return min_bin_key;
+}
+
+__uint128_t KrakenDB::bin_key128(__uint128_t kmer, uint64_t idx_nt) {
+  uint8_t nt = idx_nt;
+  __uint128_t xor_mask = INDEX2_XOR_MASK128;
+  __uint128_t mask = 1 << (nt * 2);
+  mask--;
+  xor_mask &= mask;
+  __uint128_t min_bin_key = ~0;
+  for (uint64_t i = 0; i < key_bits / 2 - nt + 1; i++) {
+    uint64_t temp_bin_key = xor_mask ^ canonical_representation128(kmer & mask, nt);
+    if (temp_bin_key < min_bin_key)
+      min_bin_key = temp_bin_key;
+    kmer >>= 2;
+  }
+  return min_bin_key;
+}
+
+__uint128_t KrakenDB::bin_key128(__uint128_t kmer) {
+  uint8_t nt = index_ptr->indexed_nt();
+  uint8_t idx_type = index_ptr->index_type();
+  __uint128_t xor_mask = idx_type == 1 ? 0 : INDEX2_XOR_MASK128;
+  __uint128_t mask = 1 << (nt * 2);
+  mask--;
+  xor_mask &= mask;
+  __uint128_t min_bin_key = ~0;
+  for (uint64_t i = 0; i < key_bits / 2 - nt + 1; i++) {
+    __uint128_t temp_bin_key = xor_mask ^ canonical_representation128(kmer & mask, nt);
     if (temp_bin_key < min_bin_key)
       min_bin_key = temp_bin_key;
     kmer >>= 2;
@@ -184,6 +233,92 @@ uint64_t KrakenDB::reverse_complement(uint64_t kmer) {
   return (((uint64_t)-1) - kmer) >> (8 * sizeof(kmer) - (k << 1));
 }
 
+__uint128_t KrakenDB::reverse_complement128(__uint128_t kmer) {
+    assert(k <= 64);
+
+    // Swap adjacent 2-bit pairs
+    const __uint128_t MASK_2H = (__uint128_t{0xCCCCCCCCCCCCCCCCULL} << 64) | 0xCCCCCCCCCCCCCCCCULL;
+    const __uint128_t MASK_2L = (__uint128_t{0x3333333333333333ULL} << 64) | 0x3333333333333333ULL;
+    kmer = ((kmer & MASK_2H) >> 2) | ((kmer & MASK_2L) << 2);
+
+    // Swap 4-bit blocks
+    const __uint128_t MASK_4H = (__uint128_t{0xF0F0F0F0F0F0F0F0ULL} << 64) | 0xF0F0F0F0F0F0F0F0ULL;
+    const __uint128_t MASK_4L = (__uint128_t{0x0F0F0F0F0F0F0F0FULL} << 64) | 0x0F0F0F0F0F0F0F0FULL;
+    kmer = ((kmer & MASK_4H) >> 4) | ((kmer & MASK_4L) << 4);
+
+    // Swap 8-bit blocks
+    const __uint128_t MASK_8H = (__uint128_t{0xFF00FF00FF00FF00ULL} << 64) | 0xFF00FF00FF00FF00ULL;
+    const __uint128_t MASK_8L = (__uint128_t{0x00FF00FF00FF00FFULL} << 64) | 0x00FF00FF00FF00FFULL;
+    kmer = ((kmer & MASK_8H) >> 8) | ((kmer & MASK_8L) << 8);
+
+    // Swap 16-bit blocks
+    const __uint128_t MASK_16H = (__uint128_t{0xFFFF0000FFFF0000ULL} << 64) | 0xFFFF0000FFFF0000ULL;
+    const __uint128_t MASK_16L = (__uint128_t{0x0000FFFF0000FFFFULL} << 64) | 0x0000FFFF0000FFFFULL;
+    kmer = ((kmer & MASK_16H) >> 16) | ((kmer & MASK_16L) << 16);
+
+    // Swap 32-bit blocks
+    const __uint128_t MASK_32H = (__uint128_t{0xFFFFFFFF00000000ULL} << 64) | 0xFFFFFFFF00000000ULL;
+    const __uint128_t MASK_32L = (__uint128_t{0x00000000FFFFFFFFULL} << 64) | 0x00000000FFFFFFFFULL;
+    kmer = ((kmer & MASK_32H) >> 32) | ((kmer & MASK_32L) << 32);
+
+    // Swap 64-bit halves
+    kmer = (kmer >> 64) | (kmer << 64);
+
+    // Complement (i.e., bitwise NOT)
+    kmer = ~kmer;
+
+    // Truncate to lowest 2*k bits
+    if (k < 64) {
+        uint8_t shift = 128 - 2 * k;
+        kmer >>= shift;
+    }
+
+    return kmer;
+}
+
+__uint128_t KrakenDB::reverse_complement128(__uint128_t kmer, uint8_t n) {
+  assert(n <= 64);
+
+  // Swap adjacent 2-bit pairs
+  const __uint128_t MASK_2H = (__uint128_t{0xCCCCCCCCCCCCCCCCULL} << 64) | 0xCCCCCCCCCCCCCCCCULL;
+  const __uint128_t MASK_2L = (__uint128_t{0x3333333333333333ULL} << 64) | 0x3333333333333333ULL;
+  kmer = ((kmer & MASK_2H) >> 2) | ((kmer & MASK_2L) << 2);
+
+  // Swap 4-bit blocks
+  const __uint128_t MASK_4H = (__uint128_t{0xF0F0F0F0F0F0F0F0ULL} << 64) | 0xF0F0F0F0F0F0F0F0ULL;
+  const __uint128_t MASK_4L = (__uint128_t{0x0F0F0F0F0F0F0F0FULL} << 64) | 0x0F0F0F0F0F0F0F0FULL;
+  kmer = ((kmer & MASK_4H) >> 4) | ((kmer & MASK_4L) << 4);
+
+  // Swap 8-bit blocks
+  const __uint128_t MASK_8H = (__uint128_t{0xFF00FF00FF00FF00ULL} << 64) | 0xFF00FF00FF00FF00ULL;
+  const __uint128_t MASK_8L = (__uint128_t{0x00FF00FF00FF00FFULL} << 64) | 0x00FF00FF00FF00FFULL;
+  kmer = ((kmer & MASK_8H) >> 8) | ((kmer & MASK_8L) << 8);
+
+  // Swap 16-bit blocks
+  const __uint128_t MASK_16H = (__uint128_t{0xFFFF0000FFFF0000ULL} << 64) | 0xFFFF0000FFFF0000ULL;
+  const __uint128_t MASK_16L = (__uint128_t{0x0000FFFF0000FFFFULL} << 64) | 0x0000FFFF0000FFFFULL;
+  kmer = ((kmer & MASK_16H) >> 16) | ((kmer & MASK_16L) << 16);
+
+  // Swap 32-bit blocks
+  const __uint128_t MASK_32H = (__uint128_t{0xFFFFFFFF00000000ULL} << 64) | 0xFFFFFFFF00000000ULL;
+  const __uint128_t MASK_32L = (__uint128_t{0x00000000FFFFFFFFULL} << 64) | 0x00000000FFFFFFFFULL;
+  kmer = ((kmer & MASK_32H) >> 32) | ((kmer & MASK_32L) << 32);
+
+  // Swap 64-bit halves
+  kmer = (kmer >> 64) | (kmer << 64);
+
+  // Complement (i.e., bitwise NOT)
+  kmer = ~kmer;
+
+  // Truncate to lowest 2*k bits
+  if (n < 64) {
+      uint8_t shift = 128 - 2 * n;
+      kmer >>= shift;
+  }
+
+  return kmer;
+}
+
 // Lexicographically smallest of k-mer and reverse comp. of k-mer
 uint64_t KrakenDB::canonical_representation(uint64_t kmer, uint8_t n) {
   uint64_t revcom = reverse_complement(kmer, n);
@@ -192,6 +327,16 @@ uint64_t KrakenDB::canonical_representation(uint64_t kmer, uint8_t n) {
 
 uint64_t KrakenDB::canonical_representation(uint64_t kmer) {
   uint64_t revcom = reverse_complement(kmer, k);
+  return kmer < revcom ? kmer : revcom;
+}
+
+__uint128_t KrakenDB::canonical_representation128(__uint128_t kmer, uint8_t n) {
+  __uint128_t revcom = reverse_complement128(kmer, n);
+  return kmer < revcom ? kmer : revcom;
+}
+
+__uint128_t KrakenDB::canonical_representation128(__uint128_t kmer) {
+  __uint128_t revcom = reverse_complement128(kmer, k);
   return kmer < revcom ? kmer : revcom;
 }
 
