@@ -1,0 +1,7 @@
+dist/
+.devcontainer/
+.vscode/
+build.sh
+run.sh
+Dockerfile
+__pycache__

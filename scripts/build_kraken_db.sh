@@ -24,6 +24,12 @@ set -u  # Protect against uninitialized vars.
 set -e  # Stop on error
 set -o pipefail  # Stop on failures in non-final pipeline commands
 
+# Store the directory where this script is located
+SCRIPT_DIR="$(dirname "$0")"
+
+# Add src directory to PATH for Kraken tools
+export PATH="$SCRIPT_DIR/../src:$PATH"
+
 function report_time_elapsed() {
   curr_time=$(date "+%s.%N")
   perl -e '$time = $ARGV[1] - $ARGV[0];' \
@@ -68,25 +74,44 @@ else
   echo "Creating k-mer set (step 1 of 6)..."
   start_time1=$(date "+%s.%N")
 
-  check_for_jellyfish.sh
-  # Estimate hash size as 1.25 * estimated k-mer count
-  if [ -z "$KRAKEN_HASH_SIZE" ]
+  # Check if we should use KMC instead of Jellyfish
+  if [ -n "${KRAKEN_USE_KMC:-}" ]
   then
-    KRAKEN_HASH_SIZE=$(find library/ -name '*.fna' -print0 | xargs -0 cat | kmer_estimator -m 1.25 -t $KRAKEN_THREAD_CT -k $KRAKEN_KMER_LEN)
-    echo "Hash size not specified, using '$KRAKEN_HASH_SIZE'"
-  fi
-
-  find library/ -name '*.fna' -print0 | \
-    xargs -0 cat | \
-    jellyfish count -m $KRAKEN_KMER_LEN -s $KRAKEN_HASH_SIZE -C -t $KRAKEN_THREAD_CT \
-      -o database /dev/fd/0
-
-  # Merge only if necessary
-  if [ -e "database_1" ]
-  then
-    jellyfish merge -o database.jdb.tmp database_*
+    echo "Using KMC for k-mer counting..."
+    kmc_temp_dir=$(mktemp -d)
+    find library/ -name '*.fna' -print0 | xargs -0 cat > combined_input.fna
+    
+    # Count k-mers with KMC
+    kmc -k$KRAKEN_KMER_LEN -fa combined_input.fna database_kmc $kmc_temp_dir
+    
+    # Convert KMC output to Jellyfish format
+    "$SCRIPT_DIR/../src/kmc_to_jellyfish" -k $KRAKEN_KMER_LEN database_kmc database.jdb.tmp
+    
+    # Clean up KMC temporary files
+    rm -rf $kmc_temp_dir
+    rm -f database_kmc.kmc_pre database_kmc.kmc_suf
+    rm -f combined_input.fna
   else
-    mv database_0 database.jdb.tmp
+    bash "$(dirname "$0")/check_for_jellyfish.sh"
+    # Estimate hash size as 1.25 * estimated k-mer count
+    if [ -z "$KRAKEN_HASH_SIZE" ]
+    then
+      KRAKEN_HASH_SIZE=$(find library/ -name '*.fna' -print0 | xargs -0 cat | kmer_estimator -m 1.25 -t $KRAKEN_THREAD_CT -k $KRAKEN_KMER_LEN)
+      echo "Hash size not specified, using '$KRAKEN_HASH_SIZE'"
+    fi
+
+    find library/ -name '*.fna' -print0 | \
+      xargs -0 cat | \
+      jellyfish count -m $KRAKEN_KMER_LEN -s $KRAKEN_HASH_SIZE -C -t $KRAKEN_THREAD_CT \
+        -o database /dev/fd/0
+
+    # Merge only if necessary
+    if [ -e "database_1" ]
+    then
+      jellyfish merge -o database.jdb.tmp database_*
+    else
+      mv database_0 database.jdb.tmp
+    fi
   fi
 
   # Once here, DB is finalized, can put file in place.

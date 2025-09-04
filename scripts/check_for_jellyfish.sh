@@ -18,18 +18,51 @@
 # along with Kraken.  If not, see <http://www.gnu.org/licenses/>.
 
 # Check that jellyfish is executable and is proper version
+# Also check for KMC tools if KRAKEN_USE_KMC is set
 # Designed to be called by kraken-build
 
 set -u  # Protect against uninitialized vars.
 set -e  # Stop on error
 set -o pipefail  # Stop on failures in non-final pipeline commands
 
-JELLYFISH_VERSION=$(jellyfish --version | awk '{print $2}')
-if [[ $JELLYFISH_VERSION =~ ^1\. ]]
+# Check if we should use KMC instead of Jellyfish
+if [ -n "${KRAKEN_USE_KMC:-}" ]
 then
-  echo "Found jellyfish v$JELLYFISH_VERSION"
+  echo "KMC mode enabled, checking for KMC tools..."
+  
+  # Check for kmc
+  if ! command -v kmc &> /dev/null; then
+    echo "ERROR: kmc command not found in PATH"
+    echo "Please install KMC3 and ensure it's in your PATH"
+    exit 1
+  fi
+  
+  # Check for kmc_tools
+  if ! command -v kmc_tools &> /dev/null; then
+    echo "ERROR: kmc_tools command not found in PATH"
+    echo "Please install KMC3 and ensure kmc_tools is in your PATH"
+    exit 1
+  fi
+  
+  # Check for kmc_to_jellyfish
+  if [ -f "$(dirname "$0")/../src/kmc_to_jellyfish" ]; then
+    echo "Found kmc_to_jellyfish in src directory"
+  else
+    echo "ERROR: kmc_to_jellyfish tool not found in src directory"
+    echo "Please build the kmc_to_jellyfish tool with 'make -C src'"
+    exit 1
+  fi
+  
+  echo "Found KMC tools: kmc, kmc_tools, kmc_to_jellyfish"
 else
-  echo "Found jellyfish v$JELLYFISH_VERSION"
-  echo "Kraken requires jellyfish version 1"
-  exit 1
+  # Check for Jellyfish
+  JELLYFISH_VERSION=$(jellyfish --version | awk '{print $2}')
+  if [[ $JELLYFISH_VERSION =~ ^1\. ]]
+  then
+    echo "Found jellyfish v$JELLYFISH_VERSION"
+  else
+    echo "Found jellyfish v$JELLYFISH_VERSION"
+    echo "Kraken requires jellyfish version 1"
+    exit 1
+  fi
 fi

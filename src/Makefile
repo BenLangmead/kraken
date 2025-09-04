@@ -7,7 +7,7 @@ ifeq ($(shell uname),Darwin)
 else
     CXXFLAGS += -fopenmp
 endif
-PROGS = db_sort set_lcas classify make_seqid_to_taxid_map db_shrink kmer_estimator
+PROGS = db_sort set_lcas classify make_seqid_to_taxid_map db_shrink kmer_estimator kmc_to_jellyfish
 TEST_PROGS = test_kraken
 
 .PHONY: all install clean test
@@ -38,6 +38,8 @@ kmer_estimator: krakenutil.o seqreader.o
 classify: krakendb.o quickfile.o krakenutil.o seqreader.o
 
 make_seqid_to_taxid_map: quickfile.o
+
+kmc_to_jellyfish: krakendb.o quickfile.o krakenutil.o seqreader.o
 
 test_kraken: krakendb.o quickfile.o test_kraken.o
 	$(CXX) $(CXXFLAGS) -o test_kraken test_kraken.o krakendb.o quickfile.o $(LDFLAGS) -lstdc++

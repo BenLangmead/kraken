@@ -1,0 +1,9 @@
+*.o
+make_seqid_to_taxid_map
+set_lcas
+kmer_estimator
+db_sort
+db_shrink
+classify
+test_kraken
+kmc_to_jellyfish
