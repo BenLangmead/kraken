@@ -81,6 +81,18 @@ KrakenDB::KrakenDB(char *ptr) {
     errx(EX_DATAERR, "can only handle 4 byte DB values");
   k = key_bits / 2;
   key_len = key_bits / 8 + !! (key_bits % 8);
+  
+  // Check for wide format database (k > 31) - requires 128-bit support
+  if (k > 31) {
+    // This is a wide format database created with our extended version
+    // Check if this version of Kraken supports wide format
+    if (key_bits > 126) {  // 126 bits = 63-mers (our maximum)
+      errx(EX_DATAERR, "database uses k-mers longer than 63 (k=%u), which is not supported", k);
+    }
+    // For k > 31, we need to ensure 128-bit support is available
+    // This check will fail on systems without __uint128_t support
+    static_assert(sizeof(__uint128_t) >= 16, "This version of Kraken requires 128-bit integer support for k > 31");
+  }
 }
 
 // Creates an index, indicating starting positions of each bin
@@ -418,6 +430,69 @@ uint32_t *KrakenDB::kmer_query(uint64_t kmer, uint64_t *last_bin_key,
 // Binary search w/in the k-mer's bin
 uint32_t *KrakenDB::kmer_query(uint64_t kmer) {
   return kmer_query(kmer, NULL, NULL, NULL, false);
+}
+
+// 128-bit version of kmer_query
+uint32_t *KrakenDB::kmer_query128(__uint128_t kmer, __uint128_t *last_bin_key,
+                                  int64_t *min_pos, int64_t *max_pos,
+                                  bool retry_on_failure)
+{
+  int64_t min, max, mid;
+  __uint128_t comp_kmer;
+  __uint128_t b_key;
+  char *ptr = get_pair_ptr();
+  size_t pair_sz = pair_size();
+
+  // Use provided values if they exist and are valid
+  if (retry_on_failure && *min_pos <= *max_pos) {
+    b_key = *last_bin_key;
+    min = *min_pos;
+    max = *max_pos;
+  }
+  else {
+    b_key = bin_key128(kmer);
+    min = index_ptr->at(b_key);
+    max = index_ptr->at(b_key + 1) - 1;
+    // Invalid min/max values + retry_on_failure means min/max need to be
+    // initialized and set in caller
+    if (retry_on_failure) {
+      *last_bin_key = b_key;
+      *min_pos = min;
+      *max_pos = max;
+    }
+  }
+
+  // Binary search with large window
+  while (min + 15 <= max) {
+    mid = min + (max - min) / 2;
+    comp_kmer = 0;
+    memcpy(&comp_kmer, ptr + pair_sz * mid, key_len);
+    // Create mask for key_bits
+    __uint128_t mask = (key_bits < 128) ? ((__uint128_t{1} << key_bits) - 1) : ~(__uint128_t{0});
+    comp_kmer &= mask;  // trim any excess
+    if (kmer > comp_kmer)
+      min = mid + 1;
+    else if (kmer < comp_kmer)
+      max = mid - 1;
+    else
+      return (uint32_t *) (ptr + pair_sz * mid + key_len);
+  }
+  // Linear search once window shrinks
+  for (mid = min; mid <= max; mid++) {
+    comp_kmer = 0;
+    memcpy(&comp_kmer, ptr + pair_sz * mid, key_len);
+    // Create mask for key_bits
+    __uint128_t mask = (key_bits < 128) ? ((__uint128_t{1} << key_bits) - 1) : ~(__uint128_t{0});
+    comp_kmer &= mask;  // trim any excess
+    if (kmer == comp_kmer)
+      return (uint32_t *) (ptr + pair_sz * mid + key_len);
+  }
+  return NULL;
+}
+
+// Simple 128-bit kmer_query
+uint32_t *KrakenDB::kmer_query128(__uint128_t kmer) {
+  return kmer_query128(kmer, NULL, NULL, NULL, false);
 }
 
 KrakenDBIndex::KrakenDBIndex() {

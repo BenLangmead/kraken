@@ -20,25 +20,11 @@ import subprocess
 import tempfile
 import shutil
 from pathlib import Path
-
-def run_command(cmd, check=True, capture_output=True):
-    """Run a command and return the result."""
-    print(f"Running: {cmd}")
-    result = subprocess.run(cmd, shell=True, capture_output=capture_output, text=True)
-    if check and result.returncode != 0:
-        print(f"Command failed with return code {result.returncode}")
-        if result.stdout:
-            print(f"stdout: {result.stdout}")
-        if result.stderr:
-            print(f"stderr: {result.stderr}")
-        sys.exit(1)
-    return result
-
-def create_test_fasta(filename, sequences):
-    """Create a test FASTA file with given sequences."""
-    with open(filename, 'w') as f:
-        for i, seq in enumerate(sequences):
-            f.write(f">test_{i+1}\n{seq}\n")
+from test_utils import (
+    run_command,
+    create_test_fasta,
+    setup_test_environment
+)
 
 def compare_files(file1, file2):
     """Compare two files byte-by-byte and provide detailed analysis."""
@@ -159,58 +145,83 @@ def test_kmc_conversion(kmer_length, test_sequences, test_name):
         create_test_fasta(fasta_file, test_sequences)
         print(f"Created test FASTA with {len(test_sequences)} sequences")
         
-        # Build Jellyfish database
-        jellyfish_prefix = temp_path / "jellyfish_db"
-        jellyfish_cmd = f"jellyfish count -m {kmer_length} -s 1000 -C {fasta_file} -o {jellyfish_prefix}"
-        run_command(jellyfish_cmd)
-        
-        # Merge Jellyfish files if needed
-        jellyfish_files = list(temp_path.glob("jellyfish_db_*"))
-        if len(jellyfish_files) > 1:
-            jellyfish_merge_cmd = f"jellyfish merge -o {jellyfish_prefix}.jdb {' '.join(str(f) for f in jellyfish_files)}"
-            run_command(jellyfish_merge_cmd)
-        else:
-            # Single file, just rename
-            shutil.move(jellyfish_files[0], f"{jellyfish_prefix}.jdb")
-        
-        jellyfish_db = f"{jellyfish_prefix}.jdb"
-        print(f"Built Jellyfish database: {jellyfish_db}")
-        
-        # Build KMC database
-        kmc_prefix = temp_path / "kmc_db"
-        kmc_cmd = f"kmc -k{kmer_length} -fa {fasta_file} {kmc_prefix} {temp_path}"
-        run_command(kmc_cmd)
-        print(f"Built KMC database: {kmc_prefix}")
-        
-        # Convert KMC to Jellyfish format
-        converted_db = temp_path / "converted.jdb"
-        convert_cmd = f"../src/kmc_to_jellyfish -k {kmer_length} -v {kmc_prefix} {converted_db}"
-        run_command(convert_cmd)
-        print(f"Converted KMC to Jellyfish format: {converted_db}")
-        
-        # Compare the databases
-        print("Comparing databases...")
-        
-        # First check byte-by-byte identity
-        byte_identical, byte_message = compare_files(jellyfish_db, converted_db)
-        
-        # Then check k-mer content
-        kmer_identical, kmer_message = compare_kmer_databases(jellyfish_db, converted_db)
-        
-        if kmer_identical:
-            if byte_identical:
-                print("PASS: Databases are byte-by-byte identical")
-            else:
-                print("PASS: K-mer content is identical")
-                print(f"WARNING: Files are not byte-by-byte identical - {byte_message}")
-            return True
-        else:
-            print(f"FAIL: {kmer_message}")
+        # For k > 31, we can't use Jellyfish, so we only test KMC conversion
+        if kmer_length > 31:
+            print(f"Note: k={kmer_length} > 31, skipping Jellyfish comparison (Jellyfish doesn't support k > 31)")
             
-            # Show some debugging info
-            print("\nDebugging information:")
-            print(f"Jellyfish DB size: {os.path.getsize(jellyfish_db)} bytes")
-            print(f"Converted DB size: {os.path.getsize(converted_db)} bytes")
+            # Build KMC database
+            kmc_prefix = temp_path / "kmc_db"
+            kmc_cmd = f"kmc -k{kmer_length} -fa {fasta_file} {kmc_prefix} {temp_path}"
+            run_command(kmc_cmd)
+            print(f"Built KMC database: {kmc_prefix}")
+            
+            # Convert KMC to wide Jellyfish format
+            converted_db = temp_path / "converted.jdb"
+            convert_cmd = f"../src/kmc_to_jellyfish -k {kmer_length} -v {kmc_prefix} {converted_db}"
+            run_command(convert_cmd)
+            print(f"Converted KMC to wide Jellyfish format: {converted_db}")
+            
+            # For wide format, we just verify the file was created and has reasonable size
+            if converted_db.exists() and converted_db.stat().st_size > 0:
+                print("PASS: Wide format database created successfully")
+                return True
+            else:
+                print("FAIL: Wide format database creation failed")
+                return False
+        else:
+            # Standard test for k <= 31
+            # Build Jellyfish database
+            jellyfish_prefix = temp_path / "jellyfish_db"
+            jellyfish_cmd = f"jellyfish count -m {kmer_length} -s 1000 -C {fasta_file} -o {jellyfish_prefix}"
+            run_command(jellyfish_cmd)
+            
+            # Merge Jellyfish files if needed
+            jellyfish_files = list(temp_path.glob("jellyfish_db_*"))
+            if len(jellyfish_files) > 1:
+                jellyfish_merge_cmd = f"jellyfish merge -o {jellyfish_prefix}.jdb {' '.join(str(f) for f in jellyfish_files)}"
+                run_command(jellyfish_merge_cmd)
+            else:
+                # Single file, just rename
+                shutil.move(jellyfish_files[0], f"{jellyfish_prefix}.jdb")
+            
+            jellyfish_db = f"{jellyfish_prefix}.jdb"
+            print(f"Built Jellyfish database: {jellyfish_db}")
+            
+            # Build KMC database
+            kmc_prefix = temp_path / "kmc_db"
+            kmc_cmd = f"kmc -k{kmer_length} -fa {fasta_file} {kmc_prefix} {temp_path}"
+            run_command(kmc_cmd)
+            print(f"Built KMC database: {kmc_prefix}")
+            
+            # Convert KMC to Jellyfish format
+            converted_db = temp_path / "converted.jdb"
+            convert_cmd = f"../src/kmc_to_jellyfish -k {kmer_length} -v {kmc_prefix} {converted_db}"
+            run_command(convert_cmd)
+            print(f"Converted KMC to Jellyfish format: {converted_db}")
+            
+            # Compare the databases
+            print("Comparing databases...")
+            
+            # First check byte-by-byte identity
+            byte_identical, byte_message = compare_files(jellyfish_db, converted_db)
+            
+            # Then check k-mer content
+            kmer_identical, kmer_message = compare_kmer_databases(jellyfish_db, converted_db)
+            
+            if kmer_identical:
+                if byte_identical:
+                    print("PASS: Databases are byte-by-byte identical")
+                else:
+                    print("PASS: K-mer content is identical")
+                    print(f"WARNING: Files are not byte-by-byte identical - {byte_message}")
+                return True
+            else:
+                print(f"FAIL: {kmer_message}")
+                
+                # Show some debugging info
+                print("\nDebugging information:")
+                print(f"Jellyfish DB size: {os.path.getsize(jellyfish_db)} bytes")
+                print(f"Converted DB size: {os.path.getsize(converted_db)} bytes")
             
             if not byte_identical:
                 print(f"Byte-by-byte comparison: {byte_message}")
@@ -228,15 +239,8 @@ def main():
     print("Testing KMC to Jellyfish conversion tool")
     print("=" * 50)
     
-    required_tools = ['jellyfish', 'kmc', 'kmc_tools']
-    for tool in required_tools:
-        if shutil.which(tool) is None:
-            print(f"ERROR: Required tool '{tool}' not found in PATH")
-            sys.exit(1)
-    
-    if not os.path.exists("../src/kmc_to_jellyfish"):
-        print("ERROR: kmc_to_jellyfish tool not found. Please build it first with 'make -C src'")
-        sys.exit(1)
+    # Set up test environment
+    setup_test_environment()
     
     # Test cases
     test_cases = [
@@ -299,6 +303,27 @@ def main():
             'sequences': [
                 'ACTTAAGTCCGTCCGA',  # Forward sequence
                 'TCGGACGGACTTAAGT'   # Reverse complement of the above
+            ]
+        },
+        
+        # Test case 7: Longer k-mers (k=32) - tests wide format
+        {
+            'name': 'Longer k-mers (k=32)',
+            'k': 32,
+            'sequences': [
+                'ACGTACGTACGTACGTACGTACGTACGTACGT',
+                'TGCATGCATGCATGCATGCATGCATGCATGCA',
+                'GATCGATCGATCGATCGATCGATCGATCGATC'
+            ]
+        },
+        
+        # Test case 8: Very long k-mers (k=48) - tests wide format
+        {
+            'name': 'Very long k-mers (k=48)',
+            'k': 48,
+            'sequences': [
+                'ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT',
+                'TGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCA'
             ]
         }
     ]

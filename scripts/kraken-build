@@ -146,8 +146,14 @@ if ($minimizer_len <= 0) {
 if ($kmer_len <= 2) {
   die "Can't use k of $kmer_len (must be >= 2)\n";
 }
-if ($kmer_len > 31) {
-  die "Can't use k of $kmer_len (must be <= 31)\n";
+if ($kmer_len > 63) {
+  die "Can't use k of $kmer_len (must be <= 63)\n";
+}
+
+# Automatically use KMC for k > 31 since Jellyfish doesn't support it
+if ($kmer_len > 31 && !defined($use_kmc)) {
+  $use_kmc = 1;
+  warn "Automatically enabling KMC mode for k > 31 (k = $kmer_len)\n";
 }
 if ($hash_size !~ /^(\d+[kKmMgG]?)?$/) {
   die "Illegal hash size string\n";
@@ -227,7 +233,8 @@ Options:
   --new-db NAME              New Kraken DB name (shrink task only; mandatory
                              for shrink task)
   --kmer-len NUM             K-mer length in bp (build/shrink tasks only;
-                             def: $DEF_KMER_LEN)
+                             def: $DEF_KMER_LEN).  Max is 63.  Values greater
+                             than 31 use "wide" database format.
   --minimizer-len NUM        Minimizer length in bp (build/shrink tasks only;
                              def: $DEF_MINIMIZER_LEN)
   --jellyfish-hash-size STR  Pass a specific hash size argument to jellyfish

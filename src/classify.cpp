@@ -83,6 +83,12 @@ int main(int argc, char **argv) {
     db_file.load_file();
   Database = KrakenDB(db_file.ptr());
   KmerScanner::set_k(Database.get_k());
+  
+  // Check database compatibility
+  uint8_t db_k = Database.get_k();
+  if (db_k > 31) {
+    cerr << "Using wide format database with k=" << (int)db_k << " (128-bit k-mers)" << endl;
+  }
 
   QuickFile idx_file;
   idx_file.open_file(Index_filename);

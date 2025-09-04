@@ -40,6 +40,8 @@ using namespace kraken;
 void parse_command_line(int argc, char **argv);
 void usage(int exit_code=EX_USAGE);
 void convert_kmc_to_jellyfish();
+void create_standard_jellyfish_format(const string& temp_dump);
+void create_wide_jellyfish_format(const string& temp_dump);
 string get_default_temp_directory();
 
 string KMC_prefix, Output_filename;
@@ -77,8 +79,8 @@ void parse_command_line(int argc, char **argv) {
     switch (opt) {
       case 'k':
         Kmer_length = atoi(optarg);
-        if (Kmer_length == 0 || Kmer_length > 31) {
-          errx(EX_USAGE, "k-mer length must be between 1 and 31");
+        if (Kmer_length == 0 || Kmer_length > 63) {
+          errx(EX_USAGE, "k-mer length must be between 1 and 63");
         }
         break;
       case 't':
@@ -123,7 +125,7 @@ void parse_command_line(int argc, char **argv) {
   }
 }
 
-// Convert DNA string to integer representation
+// Convert DNA string to integer representation (64-bit for k <= 31)
 uint64_t string_to_kmer(const string& seq) {
   uint64_t kmer = 0;
   for (size_t i = 0; i < seq.length(); i++) {
@@ -139,11 +141,42 @@ uint64_t string_to_kmer(const string& seq) {
   return kmer;
 }
 
-// Convert integer to DNA string
+// Convert DNA string to 128-bit integer representation (for k > 31)
+__uint128_t string_to_kmer128(const string& seq) {
+  __uint128_t kmer = 0;
+  for (size_t i = 0; i < seq.length(); i++) {
+    kmer <<= 2;
+    switch (seq[i]) {
+      case 'A': case 'a': break;
+      case 'C': case 'c': kmer |= 1; break;
+      case 'G': case 'g': kmer |= 2; break;
+      case 'T': case 't': kmer |= 3; break;
+      default: errx(EX_DATAERR, "invalid character in sequence: %c", seq[i]);
+    }
+  }
+  return kmer;
+}
+
+// Convert integer to DNA string (64-bit for k <= 31)
 string kmer_to_string(uint64_t kmer, uint32_t len) {
   string seq;
   for (uint32_t i = 0; i < len; i++) {
     uint64_t base = (kmer >> (2 * (len - 1 - i))) & 3;
+    switch (base) {
+      case 0: seq += 'A'; break;
+      case 1: seq += 'C'; break;
+      case 2: seq += 'G'; break;
+      case 3: seq += 'T'; break;
+    }
+  }
+  return seq;
+}
+
+// Convert 128-bit integer to DNA string (for k > 31)
+string kmer_to_string128(__uint128_t kmer, uint32_t len) {
+  string seq;
+  for (uint32_t i = 0; i < len; i++) {
+    __uint128_t base = (kmer >> (2 * (len - 1 - i))) & 3;
     switch (base) {
       case 0: seq += 'A'; break;
       case 1: seq += 'C'; break;
@@ -167,10 +200,27 @@ uint64_t reverse_complement(uint64_t kmer, uint32_t len) {
   return rc;
 }
 
+// Get reverse complement of a 128-bit k-mer (for k > 31)
+__uint128_t reverse_complement128(__uint128_t kmer, uint32_t len) {
+  __uint128_t rc = 0;
+  for (uint32_t i = 0; i < len; i++) {
+    rc <<= 2;
+    __uint128_t base = (kmer >> (2 * i)) & 3;
+    rc |= (3 - base);  // A<->T, C<->G
+  }
+  return rc;
+}
+
 // Get canonical representation (lexicographically smaller of k-mer and
 // its reverse complement)
 uint64_t canonical_representation(uint64_t kmer, uint32_t len) {
   uint64_t rc = reverse_complement(kmer, len);
+  return (kmer < rc) ? kmer : rc;
+}
+
+// Get canonical representation for 128-bit k-mers (for k > 31)
+__uint128_t canonical_representation128(__uint128_t kmer, uint32_t len) {
+  __uint128_t rc = reverse_complement128(kmer, len);
   return (kmer < rc) ? kmer : rc;
 }
 
@@ -215,6 +265,24 @@ void convert_kmc_to_jellyfish() {
     errx(EX_OSERR, "failed to dump KMC database");
   }
 
+  // For k > 31, we need to create a custom "wide" format since Jellyfish doesn't support it
+  if (Kmer_length > 31) {
+    create_wide_jellyfish_format(temp_dump);
+  } else {
+    // Use standard Jellyfish for k <= 31
+    create_standard_jellyfish_format(temp_dump);
+  }
+
+  // Clean up temporary dump file
+  unlink(temp_dump.c_str());
+
+  if (Verbose) {
+    cerr << "Successfully converted KMC database to Jellyfish format" << endl;
+    cerr << "Output file: " << Output_filename << endl;
+  }
+}
+
+void create_standard_jellyfish_format(const string& temp_dump) {
   // Convert the dump format to FASTA format for Jellyfish
   string temp_fasta = Temp_directory + "/jellyfish_fasta_" + to_string(getpid()) + ".fa";
   ifstream dump_file(temp_dump);
@@ -268,9 +336,6 @@ void convert_kmc_to_jellyfish() {
     check_file.close();
   }
 
-  // Clean up temporary dump file
-  unlink(temp_dump.c_str());
-
   // Use Jellyfish count to create the database
   string temp_prefix = Temp_directory + "/jellyfish_temp_" + to_string(getpid());
   string count_cmd = "jellyfish count -m " + to_string(Kmer_length) + 
@@ -280,7 +345,7 @@ void convert_kmc_to_jellyfish() {
     cerr << "Running: " << count_cmd << endl;
   }
   
-  ret = system(count_cmd.c_str());
+  int ret = system(count_cmd.c_str());
   if (ret != 0) {
     errx(EX_OSERR, "failed to create Jellyfish database (return code: %d)", ret);
   }
@@ -308,9 +373,84 @@ void convert_kmc_to_jellyfish() {
   unlink(temp_fasta.c_str());
   string cleanup_cmd = "rm -f " + temp_prefix + "_*";
   system(cleanup_cmd.c_str());
+}
+
+void create_wide_jellyfish_format(const string& temp_dump) {
+  if (Verbose) {
+    cerr << "Creating wide Jellyfish format for k = " << Kmer_length << " (128-bit k-mers)" << endl;
+  }
+
+  // Read the KMC dump and create a custom wide format
+  ifstream dump_file(temp_dump);
+  if (!dump_file) {
+    err(EX_NOINPUT, "can't open temporary dump file %s", temp_dump.c_str());
+  }
+
+  // Parse all k-mers and counts
+  vector<pair<__uint128_t, uint32_t>> kmer_counts;
+  string line;
+  while (getline(dump_file, line)) {
+    istringstream iss(line);
+    string kmer_str;
+    uint32_t count;
+    iss >> kmer_str >> count;
+    
+    if (kmer_str.length() != Kmer_length) {
+      errx(EX_DATAERR, "k-mer length mismatch: expected %u, got %zu", Kmer_length, kmer_str.length());
+    }
+    
+    // Convert to 128-bit representation
+    __uint128_t kmer = string_to_kmer128(kmer_str);
+    kmer_counts.push_back(make_pair(kmer, count));
+  }
+  dump_file.close();
+
+  // Sort k-mers for consistent output
+  sort(kmer_counts.begin(), kmer_counts.end());
+
+  // Create the wide format database file
+  ofstream db_file(Output_filename, ios::binary);
+  if (!db_file) {
+    err(EX_CANTCREAT, "can't create wide format database file %s", Output_filename.c_str());
+  }
+
+  // Write header: "JFLISTDN" + key_bits + val_len + key_len + key_ct
+  const char* magic = "JFLISTDN";
+  db_file.write(magic, 8);
+  
+  uint64_t key_bits = Kmer_length * 2;  // 2 bits per nucleotide
+  uint64_t val_len = 4;  // 4 bytes for taxon ID
+  uint64_t key_len = (key_bits + 7) / 8;  // Round up to bytes
+  uint64_t key_ct = kmer_counts.size();
+  
+  db_file.write(reinterpret_cast<const char*>(&key_bits), 8);
+  db_file.write(reinterpret_cast<const char*>(&val_len), 8);
+  db_file.write(reinterpret_cast<const char*>(&key_len), 8);
+  
+  // Write padding bytes to match Jellyfish header structure
+  uint64_t padding = 0;
+  for (int i = 0; i < 3; i++) {
+    db_file.write(reinterpret_cast<const char*>(&padding), 8);
+  }
+  
+  db_file.write(reinterpret_cast<const char*>(&key_ct), 8);
+  
+  // Write k-mer/count pairs
+  for (const auto& pair : kmer_counts) {
+    __uint128_t kmer = pair.first;
+    uint32_t count = pair.second;
+    
+    // Write k-mer (key_len bytes)
+    db_file.write(reinterpret_cast<const char*>(&kmer), key_len);
+    
+    // Write count (val_len bytes)
+    db_file.write(reinterpret_cast<const char*>(&count), val_len);
+  }
+  
+  db_file.close();
 
   if (Verbose) {
-    cerr << "Successfully converted KMC database to Jellyfish format" << endl;
-    cerr << "Output file: " << Output_filename << endl;
+    cerr << "Created wide format database with " << key_ct << " k-mers" << endl;
+    cerr << "Key bits: " << key_bits << ", Key length: " << key_len << " bytes" << endl;
   }
 }
