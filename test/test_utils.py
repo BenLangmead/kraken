@@ -73,7 +73,7 @@ def create_wide_format_database(sequences, k, multiline_1sequence, temp_dir=None
     
     # Build KMC database
     kmc_prefix = temp_path / "kmc_db"
-    kmc_cmd = f"kmc -k{k} -fa {fasta_file} {kmc_prefix} {temp_path}"
+    kmc_cmd = f"kmc -k{k} -fm {fasta_file} {kmc_prefix} {temp_path}"
     run_command(kmc_cmd)
     
     # Convert to wide format
