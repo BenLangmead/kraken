@@ -36,6 +36,13 @@ def create_test_fasta(filename, sequences):
             f.write(f">test_{i+1}\n{seq}\n")
 
 
+def create_test_multiline_fasta(filename, sequence):
+    """Create a test FASTA file with given sequences."""
+    with open(filename, 'w') as f:
+        f.write(f">test_0\n")
+        for j in range(0, len(sequence), 80):
+            f.write(f"{sequence[j:j+80]}\n")
+
 def check_required_tools(tools):
     """Check that all required tools are available in PATH."""
     for tool in tools:
@@ -50,7 +57,7 @@ def check_required_files(files):
             raise RuntimeError(f"ERROR: Required file '{file_path}' not found")
 
 
-def create_wide_format_database(sequences, k, temp_dir=None):
+def create_wide_format_database(sequences, k, multiline_1sequence, temp_dir=None):
     """Create a wide format database (k > 31) for testing."""
     if temp_dir is None:
         temp_dir = tempfile.mkdtemp()
@@ -59,7 +66,10 @@ def create_wide_format_database(sequences, k, temp_dir=None):
     
     # Create test FASTA file
     fasta_file = temp_path / "test.fa"
-    create_test_fasta(fasta_file, sequences)
+    if multiline_1sequence:
+        create_test_multiline_fasta(fasta_file, sequences[0])
+    else:
+        create_test_fasta(fasta_file, sequences)
     
     # Build KMC database
     kmc_prefix = temp_path / "kmc_db"

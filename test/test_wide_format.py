@@ -26,34 +26,47 @@ def test_wide_format_database():
         'TGCATGCATGCATGCATGCATGCATGCATGCA',
         'GATCGATCGATCGATCGATCGATCGATCGATC'
     ]
-    
-    # Create wide format database
-    wide_db = create_wide_format_database(sequences, 32)
-    print(f"Created wide format database: {wide_db}")
-    
-    # Verify the database file exists and has reasonable size
-    if not wide_db.exists():
-        print("FAIL: Wide format database was not created")
-        return False
+
+    long_sequence = ["".join(sequences)*5]
+
+    subtests={'multi-fasta':(sequences, False), 'multi-line-fasta':(long_sequence, True)}
+    results=[]   
+    for subtest_name, (sequences, multiline_1sequence)  in subtests.items():
+
+        # Create wide format database
+        wide_db = create_wide_format_database(sequences, 32, multiline_1sequence)
+        print(f"Created wide format database: {wide_db}")
         
-    db_size = wide_db.stat().st_size
-    if db_size == 0:
-        print("FAIL: Wide format database is empty")
-        return False
+        # Verify the database file exists and has reasonable size
+        if not wide_db.exists():
+            print("FAIL: Wide format database was not created for test {subtest_name}")
+            results.append(False)
+            continue
+            
+        db_size = wide_db.stat().st_size
+        if db_size == 0:
+            print(f"FAIL: Wide format database is empty for test {subtest_name}")
+            results.append(False)
+            continue
+            
+        print(f"PASS: Wide format database created successfully (size: {db_size} bytes) for test {subtest_name}")
         
-    print(f"PASS: Wide format database created successfully (size: {db_size} bytes)")
-    
-    # Test that the database can be read by our test program
-    result = run_test_kraken()
-    
-    if result.returncode == 0:
-        print("PASS: test_kraken program runs successfully")
-        return True
-    else:
-        print(f"FAIL: test_kraken program failed with return code {result.returncode}")
-        if result.stderr:
-            print(f"stderr: {result.stderr}")
-        return False
+        # Test that the database can be read by our test program
+        result = run_test_kraken()
+        
+        if result.returncode == 0:
+            print(f"PASS: test_kraken program runs successfully for test {subtest_name}")
+            results.append(True)
+            
+        else:
+            print(f"FAIL: test_kraken program failed with return code {result.returncode} for test {subtest_name}")
+            if result.stderr:
+                print(f"stderr: {result.stderr}")
+            results.append(False)
+            continue
+
+    return all(results)
+
 
 def main():
     print("Wide Format Database Test")
