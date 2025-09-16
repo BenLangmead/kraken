@@ -1,6 +1,16 @@
 #!/usr/bin/env python3
 
 """
+
+A test suite that uses real viral sequences and real taxonomic
+relationships, but simulated reads, to compare the output from
+minimal_kraken.py and standard Kraken 1.  The goal is to ensure
+that minimal_kraken.py's output is identical to Kraken's.
+
+The script expects all original Kraken programs to be in the ../dist
+directory relative to this test script's location by default, but this
+can be overridden with the --kraken-dir parameter.
+
 Copyright Ben Langmead <blangme2@jhu.edu>
 
 This file is part of the Kraken taxonomic sequence classification
@@ -18,17 +28,6 @@ GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
 along with Kraken.  If not, see <http://www.gnu.org/licenses/>.
-
-
-Minimal Viral Kraken Test - Comprehensive comparison between the
-minimal_kraken.py script and the original Kraken.  Goal is to use a
-non-trivial database and non-trivial set of reads to test whether the
-two give identical results.
-
-To run:
-1. make -C src
-2. python3 test/test_min_viral.py --num-reads 1000 --download-viral
-
 """
 
 import os
@@ -50,14 +49,20 @@ from typing import List, Tuple, Dict, Optional
 
 # Utility functions (previously from test_utils)
 
-def run_command(cmd, check=True, capture_output=True, cwd=None):
+def run_command(cmd, check=True, capture_output=True, cwd=None, env=None):
     """Run a command and return the result."""
     if isinstance(cmd, list):
         cmd_str = ' '.join(cmd)
     else:
         cmd_str = cmd
     print(f"Running: {cmd_str}")
-    result = subprocess.run(cmd, shell=isinstance(cmd, str), capture_output=capture_output, text=True, cwd=cwd)
+    
+    # Use provided env or current environment
+    if env is None:
+        env = os.environ.copy()
+    
+    result = subprocess.run(cmd, shell=isinstance(cmd, str), capture_output=capture_output, 
+                          text=True, cwd=cwd, env=env)
     if check and result.returncode != 0:
         print(f"Command failed with return code {result.returncode}")
         if result.stdout:
@@ -390,7 +395,7 @@ def build_minimal_kraken_database(temp_dir: str, db_inp: str, k: int = 31) -> st
     print(f"Minimal Kraken database built: {db_name}.db")
     return db_name
 
-def build_original_kraken_database(db_inp: str, working_dir: str, k: int = 31, minimizer_len: int = 10) -> str:
+def build_original_kraken_database(db_inp: str, working_dir: str, k: int = 31, minimizer_len: int = 10, kraken_dir: str = None) -> str:
     """Build database using original Kraken with proper library structure"""
     print("Building database with original Kraken...")
     
@@ -399,13 +404,33 @@ def build_original_kraken_database(db_inp: str, working_dir: str, k: int = 31, m
     # Set up library structure
     setup_library_structure(db_inp, working_dir)
     
-    # Get absolute path to kraken-build
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    kraken_build_path = os.path.join(os.path.dirname(script_dir), "scripts", "kraken-build")
+    # Get absolute path to directory containing original Kraken programs
+    if kraken_dir is None:
+        # Default to ../dist relative to this test script
+        test_dir = os.path.dirname(os.path.abspath(__file__))
+        kraken_dir = os.path.join(os.path.dirname(test_dir), "dist")
+    else:
+        # Use provided directory (make it absolute if it's relative)
+        kraken_dir = os.path.abspath(kraken_dir)
     
-    # Check if kraken-build exists
+    kraken_build_path = os.path.join(kraken_dir, "kraken-build")
     if not os.path.exists(kraken_build_path):
         raise RuntimeError(f"kraken-build not found at {kraken_build_path}")
+    
+    # Check that required binaries exist in kraken directory
+    required_binaries = ['classify', 'kmer_estimator', 'db_sort', 'set_lcas', 'db_shrink', 'make_seqid_to_taxid_map']
+    missing_binaries = []
+    for binary in required_binaries:
+        binary_path = os.path.join(kraken_dir, binary)
+        if not os.path.exists(binary_path):
+            missing_binaries.append(binary)
+    
+    if missing_binaries:
+        raise RuntimeError(f"Kraken binaries not found in {kraken_dir}: {', '.join(missing_binaries)}")
+    
+    # Create environment with KRAKEN_DIR set to kraken directory
+    env = os.environ.copy()
+    env['KRAKEN_DIR'] = kraken_dir
 
     print(f"Building database with k={k}, minimizer_len={minimizer_len}, db={db_name}...")
     cmd = [
@@ -414,7 +439,7 @@ def build_original_kraken_database(db_inp: str, working_dir: str, k: int = 31, m
         "--minimizer-len", str(minimizer_len)
     ]
     
-    result = run_command(cmd)
+    result = run_command(cmd, env=env)
     if result.returncode != 0:
         raise RuntimeError(f"Original Kraken build failed: {result.stderr}")
     
@@ -448,13 +473,20 @@ def classify_with_minimal_kraken(db_name: str, db_inp: str, reads_file: str) -> 
     
     return result.stdout.strip().split('\n')
 
-def classify_with_original_kraken(db_name: str, reads_file: str) -> List[str]:
+def classify_with_original_kraken(db_name: str, reads_file: str, kraken_dir: str = None) -> List[str]:
     """Classify reads using original Kraken"""
     print("Classifying reads with original Kraken...")
     
     # Get absolute path to classify (the main Kraken binary)
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    kraken_path = os.path.join(os.path.dirname(script_dir), "src", "classify")
+    if kraken_dir is None:
+        # Default to ../dist relative to this test script
+        test_dir = os.path.dirname(os.path.abspath(__file__))
+        kraken_dir = os.path.join(os.path.dirname(test_dir), "dist")
+    else:
+        # Use provided directory (make it absolute if it's relative)
+        kraken_dir = os.path.abspath(kraken_dir)
+    
+    kraken_path = os.path.join(kraken_dir, "classify")
     
     cmd = [
         kraken_path, "-d", os.path.join(db_name, "database.kdb"),
@@ -483,6 +515,7 @@ def main():
     parser.add_argument('--timeout', type=int, default=300, help='Timeout for original Kraken build (seconds)')
     parser.add_argument('--differences-file', type=str, help='Output file for detailed differences between minimal and original Kraken')
     parser.add_argument('--work-dir', type=str, help='Custom working directory (overrides temporary directory)')
+    parser.add_argument('--kraken-dir', type=str, help='Directory containing original Kraken scripts and binaries (default: ../dist)')
     args = parser.parse_args()
     
     print("=== Minimal Viral Kraken Test ===")
@@ -493,6 +526,7 @@ def main():
     print(f"Download fresh?: {args.download_viral}")
     print(f"Skip original Kraken: {args.skip_original}")
     print(f"Custom work directory: {args.work_dir if args.work_dir else 'Using temporary directory'}")
+    print(f"Kraken directory: {args.kraken_dir if args.kraken_dir else 'Using default ../dist'}")
     
     # Set up working directory
     temp_dir_context = None
@@ -560,10 +594,10 @@ def main():
             print("Attempting to build original Kraken database...")
             try:
                 original_db = build_original_kraken_database(
-                    db_inp, temp_dir, args.kmer_len, args.minimizer_len
+                    db_inp, temp_dir, args.kmer_len, args.minimizer_len, args.kraken_dir
                 )
                 if original_db:
-                    original_output = classify_with_original_kraken(original_db, reads_file)
+                    original_output = classify_with_original_kraken(original_db, reads_file, args.kraken_dir)
                     original_results = parse_kraken_output(original_output)
                     print(f"Original Kraken classified {len(original_results)} reads")
                     

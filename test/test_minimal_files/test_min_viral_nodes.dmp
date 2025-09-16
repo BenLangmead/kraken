@@ -1,0 +1,33 @@
+1 | 1 | fake ncbi root | -
+2731342 | 1 | realm | -
+2732091 | 2731342 | kingdom | -
+2886930 | 2732091 | virus isolate | -
+2732092 | 2731342 | kingdom | -
+333761 | 2732092 | serotype | -
+2732004 | 1 | realm | -
+129951 | 2732004 | virus isolate | -
+2559587 | 1 | realm | -
+2732397 | 2559587 | kingdom | -
+11676 | 2732397 | virus isolate | -
+2732396 | 2559587 | kingdom | -
+2732408 | 2732396 | phylum | -
+12058 | 2732408 | family | -
+2946630 | 12058 | subfamily | -
+138948 | 2946630 | virus isolate | -
+2946627 | 12058 | subfamily | -
+12104 | 2946627 | virus isolate | -
+2946633 | 12058 | subfamily | -
+12092 | 2946633 | virus isolate | -
+2732407 | 2732396 | phylum | -
+12022 | 2732407 | virus isolate | -
+2732406 | 2732396 | phylum | -
+12637 | 2732406 | virus isolate | -
+11069 | 12637 | virus isolate | -
+11060 | 12637 | virus isolate | -
+11053 | 12637 | virus isolate | -
+2731341 | 1 | realm | -
+2731619 | 2731341 | class | -
+186765 | 2731619 | genus | -
+2681611 | 186765 | virus isolate | -
+3420540 | 2731619 | order | -
+10760 | 3420540 | virus isolate | -
