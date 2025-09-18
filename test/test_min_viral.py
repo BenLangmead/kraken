@@ -31,6 +31,7 @@ along with Kraken.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 import os
+import time
 import sys
 import tempfile
 import argparse
@@ -300,6 +301,7 @@ def create_viral_database(db_inp: str):
                 "curl", "-s", 
                 f"{URL}?db=nuccore&id={accession}&rettype=fasta&retmode=text"
             ]
+            time.sleep(1)
             result = run_command(cmd)
             if result.returncode != 0:
                 raise RuntimeError(f"Failed to download {accession}")
