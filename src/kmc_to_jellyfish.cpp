@@ -352,7 +352,8 @@ void create_standard_jellyfish_format(const string& temp_dump) {
 
   // Check if Jellyfish created any files
   string single_file = temp_prefix + "_0";
-  if (access(single_file.c_str(), R_OK) == 0) {
+  string second_file = temp_prefix + "_1";
+  if (access(single_file.c_str(), R_OK) == 0 && access(second_file.c_str(), R_OK) != 0) {
     // Single file created, copy it to the output location
     string copy_cmd = "cp " + single_file + " " + Output_filename;
     ret = system(copy_cmd.c_str());
