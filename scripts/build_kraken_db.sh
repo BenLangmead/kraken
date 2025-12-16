@@ -82,7 +82,7 @@ else
     find library/ -name '*.fna' -print0 | xargs -0 cat > combined_input.fna
     
     # Count k-mers with KMC
-    kmc -k$KRAKEN_KMER_LEN -fa combined_input.fna database_kmc $kmc_temp_dir
+    kmc -k$KRAKEN_KMER_LEN -ci1 -fm combined_input.fna database_kmc $kmc_temp_dir
     
     # Convert KMC output to Jellyfish format
     "$SCRIPT_DIR/../src/kmc_to_jellyfish" -k $KRAKEN_KMER_LEN database_kmc database.jdb.tmp
